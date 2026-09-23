@@ -75,6 +75,31 @@ services:
 			- ./data:/app/data
 		restart: unless-stopped
 ```
+
+Development (Docker Compose override):
+
+If you want to run the API locally with Redis for the rate-limiter, there's a `docker-compose.override.yml` that builds the local `freegames` image and starts `redis`.
+
+Start the stack:
+
+```bash
+docker compose up -d
+```
+
+Environment variables set in the override:
+
+- `FREEGAMES_RATE_LIMIT_REDIS_URL=redis://redis:6379`
+- `FREEGAMES_RATE_LIMIT_PER_MIN=60`
+
+Smoke tests after startup:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/metrics
+```
+
+If you don't have Docker here, run the same commands on your machine with Docker installed.
+
 Notes:
 
 - Este es un prototipo que extrae datos públicamente visibles de las tiendas. Puede fallar si cambian las páginas o sus mecanismos anti-scraping.

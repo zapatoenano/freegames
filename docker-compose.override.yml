@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  freegames:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - FREEGAMES_TTL=60
+      - FREEGAMES_FETCH_MINUTES=15
+      - FREEGAMES_DB_URL=sqlite:///./data/offers.db
+      - FREEGAMES_RATE_LIMIT_REDIS_URL=redis://redis:6379
+      - FREEGAMES_RATE_LIMIT_PER_MIN=60
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
