@@ -7,4 +7,5 @@ pytest
 httpx
 sqlalchemy
 apscheduler
+prometheus-client
 

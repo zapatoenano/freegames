@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import time
+from fastapi import Request
+import threading
+from . import metrics as metrics_mod
 
 app = FastAPI(title="Free Games API")
 
@@ -51,6 +54,64 @@ def cached_epic():
 @ttl_cache(TTL)
 def cached_steam():
     return _get_free_games_steam()
+
+
+# Rate limiting config
+try:
+    RATE_LIMIT_PER_MIN = int(os.getenv("FREEGAMES_RATE_LIMIT_PER_MIN", "60"))
+except Exception:
+    RATE_LIMIT_PER_MIN = 60
+
+RATE_LIMIT_ENABLED = os.getenv("FREEGAMES_RATE_LIMIT_ENABLED", "true").lower() in ("1", "true", "yes")
+
+# in-memory store: ip -> (count, window_start_ts)
+_rate_store: dict = {}
+_rate_lock = threading.Lock()
+
+
+@app.middleware("http")
+async def metrics_and_rate_middleware(request: Request, call_next):
+    start = time.time()
+    client_ip = request.client.host if request.client else "unknown"
+
+    # rate limiting (fixed window per minute)
+    if RATE_LIMIT_ENABLED:
+        now = int(time.time())
+        window = now // 60
+        with _rate_lock:
+            entry = _rate_store.get(client_ip)
+            if not entry or entry[0] != window:
+                # reset: store as (window, count)
+                _rate_store[client_ip] = (window, 1)
+            else:
+                w, cnt = entry
+                if cnt >= RATE_LIMIT_PER_MIN:
+                    # too many requests
+                    duration = time.time() - start
+                    metrics_mod.observe_request(request.url.path, request.method, 429, duration)
+                    return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"})
+                else:
+                    _rate_store[client_ip] = (w, cnt + 1)
+
+    # process request
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        duration = time.time() - start
+        metrics_mod.observe_request(request.url.path, request.method, 500, duration)
+        raise
+
+    duration = time.time() - start
+    try:
+        metrics_mod.observe_request(request.url.path, request.method, response.status_code, duration)
+    except Exception:
+        pass
+    return response
+
+
+@app.get("/metrics")
+def metrics_endpoint():
+    return metrics_mod.metrics_response()
 
 
 @app.get("/free-now")
@@ -136,3 +197,7 @@ scheduler.add_job(scheduled_fetch, "interval", minutes=FETCH_MINUTES)
 scheduler.start()
 # Shutdown hook
 atexit.register(lambda: scheduler.shutdown(wait=False))
+
+# expose app metadata for runtime checks
+app.state.rate_limit_enabled = RATE_LIMIT_ENABLED
+app.state.rate_limit_per_min = RATE_LIMIT_PER_MIN
