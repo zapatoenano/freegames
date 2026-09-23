@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/free-games-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # target the requirements.txt used by the service
+    # reviewers and assignees can be configured per repo
