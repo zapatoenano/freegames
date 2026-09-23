@@ -1,6 +1,7 @@
 import os
 import logging
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 from fastapi.responses import JSONResponse
 from .epic import get_free_games_epic as _get_free_games_epic
 from .steam import get_free_games_steam as _get_free_games_steam
@@ -23,7 +24,31 @@ from . import metrics as metrics_mod
 from .rate_limit_redis import RedisRateLimiter, make_redis_rate_middleware
 import asyncio
 
-app = FastAPI(title="Free Games API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # init optional Redis limiter
+    await _init_redis_limiter()
+    # start scheduler
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(scheduled_fetch, "interval", minutes=FETCH_MINUTES)
+    scheduler.start()
+    try:
+        yield
+    finally:
+        # shutdown scheduler
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        # close redis limiter
+        if _redis_limiter is not None:
+            try:
+                await _redis_limiter.close()
+            except Exception:
+                pass
+
+
+app = FastAPI(title="Free Games API", lifespan=lifespan)
 
 # basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -97,15 +122,7 @@ async def _redis_middleware(request, call_next):
     return await mw(request, call_next)
 
 
-@app.on_event("startup")
-async def _startup_redis():
-    await _init_redis_limiter()
-
-
-@app.on_event("shutdown")
-async def _shutdown_redis():
-    if _redis_limiter is not None:
-        await _redis_limiter.close()
+# (Redis init and scheduler lifecycle handled by lifespan)
 
 
 @app.middleware("http")
@@ -231,11 +248,7 @@ def scheduled_fetch():
         db.close()
 
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(scheduled_fetch, "interval", minutes=FETCH_MINUTES)
-scheduler.start()
-# Shutdown hook
-atexit.register(lambda: scheduler.shutdown(wait=False))
+# scheduler and redis lifecycle are managed in `lifespan`
 
 # expose app metadata for runtime checks
 app.state.rate_limit_enabled = RATE_LIMIT_ENABLED
