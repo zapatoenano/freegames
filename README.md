@@ -54,6 +54,27 @@ docker pull ghcr.io/<OWNER>/freegames:<COMMIT_SHA>
 
 Replace `<OWNER>` with your GitHub username or organization. If you prefer Docker Hub instead, provide the repo name and I can add a second push step and README examples.
 
+Docker Hub (optional):
+
+If you want to publish to Docker Hub, set GitHub Actions secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (or a Personal Access Token). The workflow will push `DOCKERHUB_USERNAME/freegames:latest` and `DOCKERHUB_USERNAME/freegames:<COMMIT_SHA>`.
+
+Docker Compose example:
+
+```yaml
+version: '3.8'
+services:
+	freegames:
+		image: ghcr.io/<OWNER>/freegames:latest
+		ports:
+			- "8000:8000"
+		environment:
+			- FREEGAMES_TTL=300
+			- FREEGAMES_FETCH_MINUTES=15
+			- FREEGAMES_DB_URL=sqlite:///./data/offers.db
+		volumes:
+			- ./data:/app/data
+		restart: unless-stopped
+```
 Notes:
 
 - Este es un prototipo que extrae datos públicamente visibles de las tiendas. Puede fallar si cambian las páginas o sus mecanismos anti-scraping.

@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  freegames:
+    image: ghcr.io/<OWNER>/freegames:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - FREEGAMES_TTL=300
+      - FREEGAMES_FETCH_MINUTES=15
+      - FREEGAMES_DB_URL=sqlite:///./data/offers.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
