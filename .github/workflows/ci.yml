@@ -39,6 +39,9 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
     steps:
       - name: Checkout
@@ -68,15 +71,15 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/freegames:latest
             ghcr.io/${{ github.repository_owner }}/freegames:${{ github.sha }}
       - name: Optionally push to Docker Hub
-        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v2
         with:
           registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Build and push to Docker Hub
-        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         uses: docker/build-push-action@v4
         with:
           context: ./free-games-api
@@ -84,8 +87,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/freegames:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/freegames:${{ github.sha }}
+            ${{ env.DOCKERHUB_USERNAME }}/freegames:latest
+            ${{ env.DOCKERHUB_USERNAME }}/freegames:${{ github.sha }}
 
   release:
     needs: build-and-push
