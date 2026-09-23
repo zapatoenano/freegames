@@ -8,4 +8,7 @@ httpx
 sqlalchemy
 apscheduler
 prometheus-client
+redis>=4.6.0
+fakeredis[aio]
+pytest-asyncio
 

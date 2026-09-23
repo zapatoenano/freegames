@@ -20,6 +20,8 @@ import time
 from fastapi import Request
 import threading
 from . import metrics as metrics_mod
+from .rate_limit_redis import RedisRateLimiter, make_redis_rate_middleware
+import asyncio
 
 app = FastAPI(title="Free Games API")
 
@@ -67,6 +69,43 @@ RATE_LIMIT_ENABLED = os.getenv("FREEGAMES_RATE_LIMIT_ENABLED", "true").lower() i
 # in-memory store: ip -> (count, window_start_ts)
 _rate_store: dict = {}
 _rate_lock = threading.Lock()
+
+# Redis rate-limiter (optional)
+REDIS_URL = os.getenv("FREEGAMES_RATE_LIMIT_REDIS_URL")
+_redis_limiter: RedisRateLimiter | None = None
+
+async def _init_redis_limiter():
+    global _redis_limiter
+    if REDIS_URL:
+        try:
+            _redis_limiter = RedisRateLimiter(REDIS_URL, per_min=RATE_LIMIT_PER_MIN)
+            await _redis_limiter.init()
+            # mount redis middleware at the top if enabled
+            app.middleware_stack = None
+            app.add_middleware = app.add_middleware
+            app.middleware("http")(_redis_middleware)
+        except Exception:
+            logger.exception("Failed to init Redis rate limiter, falling back to in-memory")
+
+
+async def _redis_middleware(request, call_next):
+    # this wrapper ensures limiter is initialized
+    global _redis_limiter
+    if _redis_limiter is None:
+        return await call_next(request)
+    mw = make_redis_rate_middleware(_redis_limiter)
+    return await mw(request, call_next)
+
+
+@app.on_event("startup")
+async def _startup_redis():
+    await _init_redis_limiter()
+
+
+@app.on_event("shutdown")
+async def _shutdown_redis():
+    if _redis_limiter is not None:
+        await _redis_limiter.close()
 
 
 @app.middleware("http")
