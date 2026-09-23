@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from .epic import get_free_games_epic as _get_free_games_epic
@@ -18,6 +19,10 @@ import atexit
 import time
 
 app = FastAPI(title="Free Games API")
+
+# basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logger = logging.getLogger('freegames')
 
 
 def get_db():
@@ -57,9 +62,9 @@ def free_now(db: Session = Depends(get_db)):
     try:
         upsert_offers(db, epic, "epic")
         upsert_offers(db, steam, "steam")
-    except Exception:
+    except Exception as e:
         # don't block the response if DB fails
-        pass
+        logger.exception("upsert_offers failed: %s", e)
     return JSONResponse(content={"epic": epic, "steam": steam})
 
 
@@ -68,8 +73,8 @@ def free_now_epic(db: Session = Depends(get_db)):
     data = cached_epic()
     try:
         upsert_offers(db, data, "epic")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("upsert epic failed: %s", e)
     return JSONResponse(content={"epic": data})
 
 
@@ -78,8 +83,8 @@ def free_now_steam(db: Session = Depends(get_db)):
     data = cached_steam()
     try:
         upsert_offers(db, data, "steam")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("upsert steam failed: %s", e)
     return JSONResponse(content={"steam": data})
 
 
@@ -93,6 +98,9 @@ def list_offers(active: bool = True, db: Session = Depends(get_db)):
             "title": o.title,
             "url": o.url,
             "store": o.store,
+            "image": o.image,
+            "description": o.description,
+            "genre": o.genre,
             "start": o.start.isoformat() if o.start else None,
             "end": o.end.isoformat() if o.end else None,
             "active": o.active,
@@ -114,10 +122,11 @@ def scheduled_fetch():
     try:
         epic = cached_epic()
         steam = cached_steam()
+        logger.info("Scheduled fetch: epic=%d steam=%d", len(epic) if isinstance(epic, list) else 0, len(steam) if isinstance(steam, list) else 0)
         upsert_offers(db, epic, "epic")
         upsert_offers(db, steam, "steam")
     except Exception:
-        pass
+        logger.exception("scheduled_fetch failed")
     finally:
         db.close()
 

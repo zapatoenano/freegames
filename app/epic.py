@@ -1,6 +1,16 @@
 import requests
 import json
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+
+def _session_with_retries(retries: int = 3, backoff: float = 0.5):
+    s = requests.Session()
+    retry = Retry(total=retries, backoff_factor=backoff, status_forcelist=(429, 500, 502, 503, 504))
+    s.mount("https://", HTTPAdapter(max_retries=retry))
+    s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; freegames-bot/1.0)"})
+    return s
 
 
 def get_free_games_epic():
@@ -8,9 +18,9 @@ def get_free_games_epic():
     Devuelve lista de dicts: {title, url, start, end} cuando sea posible.
     """
     url = "https://store.epicgames.com/en-US/free-games"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    s = _session_with_retries()
     try:
-        r = requests.get(url, timeout=10, headers=headers)
+        r = s.get(url, timeout=10)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
@@ -47,7 +57,37 @@ def get_free_games_epic():
                             link = slug if slug.startswith('http') else ('https://store.epicgames.com' + slug)
                         start = offer.get('startDate') or offer.get('effectiveDate')
                         end = offer.get('endDate') or offer.get('expiryDate')
-                        results.append({"title": title, "url": link, "start": start, "end": end})
+                        # Try to extract image/description/genre from structured data
+                        image = None
+                        description = offer.get('description') or offer.get('longDescription') or offer.get('shortDescription')
+                        # keyImages often contains image urls
+                        ki = offer.get('keyImages') or []
+                        if isinstance(ki, list) and ki:
+                            for item in ki:
+                                if isinstance(item, dict) and item.get('url'):
+                                    image = item.get('url')
+                                    break
+
+                        # genres/categories may be present
+                        genre = None
+                        categories = offer.get('categories') or offer.get('tags') or offer.get('genres')
+                        if isinstance(categories, list) and categories:
+                            # pick first category name if available
+                            first = categories[0]
+                            if isinstance(first, dict):
+                                genre = first.get('name')
+                            elif isinstance(first, str):
+                                genre = first
+
+                        results.append({
+                            "title": title,
+                            "url": link,
+                            "start": start,
+                            "end": end,
+                            "image": image,
+                            "description": description,
+                            "genre": genre,
+                        })
             except Exception:
                 pass
 
@@ -61,9 +101,18 @@ def get_free_games_epic():
                 if title_el:
                     title = title_el.get_text(strip=True)
                 href = a.get('href')
+                # attempt to find image and short description inside card
+                image = None
+                img_el = a.select_one('img')
+                if img_el:
+                    image = img_el.get('src') or img_el.get('data-src')
+                desc = None
+                desc_el = a.select_one('p') or a.select_one('.Card-body')
+                if desc_el:
+                    desc = desc_el.get_text(strip=True)
                 if href and title and href not in seen:
                     seen.add(href)
-                    results.append({"title": title, "url": href})
+                    results.append({"title": title, "url": href, "image": image, "description": desc, "genre": None})
 
         # Normalize output to dicts with title/url/start/end
         normalized = []
